@@ -96,6 +96,7 @@ type
     nimExpandMacro*: Option[bool]
     maxNimsuggestProcesses*: Option[int]
       #max number of nimsuggest processes to keep alive. zero means unlimited
+    excludeLib*: Option[bool]
 
   NlsFileInfo* = ref object of RootObj
     projectFile*: Future[string]
@@ -191,6 +192,7 @@ type
     name*: string
     nimDir*: Option[string]
     nimblePath*: Option[string]
+    libPath*: Option[string]
     entryPoints*: seq[string] #when it's empty, means the nimble version doesnt dump it.
 
   OnExitCallback* = proc(): Future[void] {.gcsafe, raises: [].}
@@ -279,6 +281,8 @@ proc getNimbleDumpInfo*(ls: LanguageServer, nimbleFile: string): Future[NimbleDu
         result.nimDir = some line[(1 + line.find '"') ..^ 2]
       if line.startsWith("nimblePath"):
         result.nimblePath = some line[(1 + line.find '"') ..^ 2]
+      if line.startsWith("libPath"):
+        result.libPath = some line[(1 + line.find '"') ..^ 2]
       if line.startsWith("entryPoints"):
         result.entryPoints =
           line[(1 + line.find '"') ..^ 2].split(',').mapIt(it.strip(chars = {' ', '"'}))
@@ -910,7 +914,13 @@ proc checkProject*(ls: LanguageServer, uri: string): Future[void] {.async, gcsaf
       warn "Checking project with empty uri", uri = uri
       ls.progress(token, "end")
       return
-    let diagnostics = await nimCheck(uriToPath(uri), nimPath.get)
+    let nimbleDump = await ls.getNimbleDumpInfo(uriToPath(uri))
+    let diagnostics = await nimCheck(
+      uriToPath(uri),
+      nimPath.get,
+      nimbleDump.libPath,
+      conf.excludeLib.get(false),
+    )
     let filesWithDiags = diagnostics.map(r => r.file).toHashSet
 
     ls.progress(token, "end")
@@ -1206,7 +1216,13 @@ proc checkFile*(ls: LanguageServer, uri: string): Future[void] {.async.} =
   let path = uriToPath(uri)
 
   if useNimCheck and nimPath.isSome:
-    let checkResults = await nimCheck(uriToPath(uri), nimPath.get)
+    let nimbleDump = await ls.getNimbleDumpInfo(uriToPath(uri))
+    let checkResults = await nimCheck(
+      uriToPath(uri),
+      nimPath.get,
+      nimbleDump.libPath,
+      conf.excludeLib.get(false),
+    )
     ls.progress(token, "end")
     ls.sendDiagnostics(checkResults, path)
     return

@@ -325,7 +325,58 @@ suite "LSP features":
       nullResponse = waitFor client.call("shutdown", nullValue)
 
     doAssert nullResponse == nullValue
-    doAssert ls.isShutdown    
+    doAssert ls.isShutdown
+
+suite "Exclude lib diagnostics":
+  let cmdParams = CommandLineParams(transport: some socket, port: getNextFreePort())
+  let ls = main(cmdParams)
+  let client = newLspSocketClient()
+  client.registerNotification(
+    "window/showMessage",
+    "window/workDoneProgress/create",
+    "workspace/configuration",
+    "extension/statusUpdate",
+    "textDocument/publishDiagnostics",
+    "$/progress"
+  )
+
+  waitFor client.connect("localhost", cmdParams.port)
+
+  let initParams = InitializeParams %* {
+      "processId": %getCurrentProcessId(),
+      "rootUri": fixtureUri("projects/hw/"),
+      "capabilities": {
+        "workspace": {"configuration": true},
+        "textDocument": {
+          "rename": {
+            "prepareSupport": true
+          }
+        }
+      }
+  }
+  discard waitFor client.initialize(initParams)
+  client.notify("initialized", newJObject())
+
+  test "Exclude lib diagnostics":
+    let config = %* {
+      "settings": {
+        "nim": {
+          "excludeLib": true,
+          "autoCheckFile": true
+        }
+      }
+    }
+    client.notify("workspace/didChangeConfiguration", config)
+    client.notify("textDocument/didOpen", %createDidOpenParams("projects/hw/declaration.nim"))
+    let success = waitFor client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      proc(json: JsonNode): bool =
+        let params = json.to(PublishDiagnosticsParams)
+        if params.uri == fixtureUri("projects/hw/declaration.nim"):
+          return params.diagnostics.get.len == 0
+        return false
+    )
+    check success
 
 suite "Null configuration:":
   let cmdParams = CommandLineParams(transport: some socket, port: getNextFreePort())
