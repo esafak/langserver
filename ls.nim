@@ -1166,7 +1166,12 @@ proc getProjectFile*(fileUri: string, ls: LanguageServer): Future[string] {.asyn
       ls.showMessage(
         fmt"RegEx matched `{mapping.fileRegex}` for file `{fileUri}`", MessageType.Info
       )
-      result = string(rootPath) / mapping.projectFile
+      result = expandTilde(mapping.projectFile)
+      if not isAbsolute(result):
+        result = absolutePath(result, rootPath)
+
+      debug "Resolved project file", path = result
+
       if fileExists(result):
         trace "getProjectFile?",
           project = result, uri = fileUri, matchedRegex = mapping.fileRegex

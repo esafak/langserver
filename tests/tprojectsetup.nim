@@ -115,3 +115,34 @@ suite "Project Mapping":
     let expectedProjectFile = nonimbleProject.pathToUri
 
     check projectFile == expectedProjectFile
+
+  test "should use projectMapping with relative paths":
+    let
+      projectDir = projectsDir / "relativeproject"
+      entryPoint = projectDir / "src" / "relativeproject.nim"
+    createNimbleProject(projectDir)
+
+    let initParams =
+      InitializeParams %* {
+        "processId": %getCurrentProcessId(),
+        "rootUri": fixtureUri("projects"),
+        "capabilities":
+          {"window": {"workDoneProgress": true}, "workspace": {"configuration": true}},
+      }
+    discard waitFor client.initialize(initParams)
+
+    let configurationParams =
+      @[NlsConfig(projectMapping: some @[NlsNimsuggestConfig(
+        fileRegex: "relativeproject/src/.*\\.nim",
+        projectFile: "relativeproject/relativeproject.nimble"
+      )])]
+    ls.workspaceConfiguration.complete(%configurationParams)
+
+    client.notify(
+      "textDocument/didOpen",
+      %createDidOpenParams("projects/relativeproject/src/relativeproject.nim"),
+    )
+
+    check waitFor client.waitForNotificationMessage(
+      "Nimsuggest initialized for " & (projectDir / "src" / "relativeproject.nim")
+    )
